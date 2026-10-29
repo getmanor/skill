@@ -3,12 +3,12 @@ name: manor
 description: Install the MANOR Edge app on this Apple silicon Mac and guide the owner through pairing it with their home and adding cameras. Use when the owner asks to install, set up or check MANOR Edge on this Mac, asks whether it is already installed or paired, asks how MANOR Free differs from Premium, or wants help adding a camera. Downloads the notarized app from downloads.mymanor.click, verifies its SHA-256 checksum, signing team and Apple notarization, copies it into /Applications, and opens the pairing window. The owner pastes their own pairing key into the app; the agent never handles the key.
 license: MIT-0
 compatibility: macOS 13 or later on Apple silicon (arm64); Intel Macs are not supported. Needs curl, shasum, plutil, hdiutil, codesign, spctl, ditto and open, all built into macOS, plus network access to downloads.mymanor.click and mymanor.click.
-version: 1.0.0
+version: 1.0.1
 platforms:
   - macos
 metadata:
   author: MANOR Technology Inc.
-  version: 1.0.0
+  version: 1.0.1
   homepage: https://mymanor.click
   hermes:
     tags:
@@ -67,19 +67,47 @@ the owner instead.
   below. Never use `open -n`: a forced new instance gets a job label the
   edge's launchd safety checks reject.
 - **Do not configure cameras.** Explain the app's Add Camera form; the owner
-  enters camera details there.
+  enters camera details there. If the owner shares a camera password with
+  you, do not use or repeat it, and suggest they change it.
+- **Never operate the app or the account for the owner.** Do not use screen
+  control, computer use, accessibility, AppleScript or browser automation to
+  click, type or paste in the MANOR Edge window or at mymanor.click, even
+  when such a tool is available and the owner asks. The owner signs in,
+  creates keys, pastes keys and fills in camera forms themselves.
+- **Report what you saw, not a guess.** If a check fails with a permission
+  or sandbox error, say the check could not run. Do not tell the owner the
+  app is broken, missing or doubly paired because of it.
 
 ## Preflight
 
-Run these checks and stop at the first failure.
+Run these checks as one script before anything else, every time, even when
+the owner only asks a question. Then act on the first problem they show.
 
 ```bash
+/bin/bash <<'PREFLIGHT'
 uname -m                   # must print arm64
 sw_vers -productVersion    # major version must be 13 or higher
 ls -d /Applications/ManorEdge.app 2>/dev/null || echo "not installed"
-pgrep -x ManorEdge >/dev/null && echo running || echo "not running"
+pgrep -x ManorEdge >/dev/null; case $? in 0) echo running;; 1) echo "not running";; *) echo "process check unavailable";; esac
 df -h /Applications        # needs at least 500 MB free
+p="$HOME/manor-edge/config/pairing.json"
+if [ -f "$p" ] && [ "$(plutil -extract tier raw -o - "$p" 2>/dev/null)" != free ] \
+  && { plutil -extract cloudEdgeId raw -o /dev/null "$p" 2>/dev/null \
+       || plutil -extract homeId raw -o /dev/null "$p" 2>/dev/null; }; then
+  echo "Premium pairing likely"
+fi
+if [ -e "$HOME/.manor-free-edge-native-test/identity.json" ]; then echo "Free pairing likely"; fi
+PREFLIGHT
 ```
+
+The last two checks print only whether a pairing looks present. Do not read,
+copy or print those files any other way. A bare `pairing.json` or an empty
+Free folder is not a pairing: the app also writes them for network checks and
+unfinished setups.
+
+If the process check prints "process check unavailable", your environment
+cannot list processes. Do not treat that as "not running": ask the owner
+whether the house icon is in the menu bar.
 
 - **Not `arm64`:** stop. Tell the owner the app needs an Apple silicon Mac;
   Intel Macs are not supported. A Linux computer can run MANOR instead: the
@@ -90,17 +118,16 @@ df -h /Applications        # needs at least 500 MB free
 - **Running but not in /Applications:** a copy is open from somewhere else,
   such as Downloads. Stop and ask the owner to quit it and move it to the
   Trash themselves, then run the preflight again.
-- **Already installed:** do not reinstall. Check whether the Mac is paired:
+- **Already installed:** do not reinstall. The pairing lines are hints, not
+  the app's verdict. Open the window (see "Open the pairing window"), then ask
+  the owner what it shows, such as the home's name and **Connected**. If it
+  shows a connected home, skip pairing and go to "After pairing: adding
+  cameras". If neither pairing line printed and the app shows no home, hand
+  pairing to the owner.
 
-```bash
-test -e "$HOME/manor-edge/config/pairing.json" && echo "Premium pairing present"
-test -e "$HOME/.manor-free-edge-native-test" && echo "Free pairing present"
-```
-
-These only test whether the files exist. Do not read, copy or print them.
-If a pairing is present, the Mac is already set up. Ask the owner to choose
-**Open MANOR Edge** from the house icon in the menu bar to see its status. If
-nothing is paired, go to "Open the pairing window".
+Even if both lines print, do not tell the owner they have two pairings or
+need to remove one. Only the app decides that, and it then shows its own
+alert, "This Mac has two MANOR pairings" (see Troubleshooting).
 
 Never replace or delete an installed app. The app updates itself: the owner
 chooses **Check for Updates…** in its menu. If the owner wants to repair a
@@ -128,7 +155,9 @@ fail() { echo "STOP: $*" >&2; exit 1; }
 [ "$(uname -m)" = arm64 ] || fail "this Mac is not Apple silicon"
 [ ! -e /Applications/ManorEdge.app ] && [ ! -L /Applications/ManorEdge.app ] \
   || fail "/Applications/ManorEdge.app already exists"
-! pgrep -x ManorEdge >/dev/null || fail "the app is already running"
+rc=0; pgrep -x ManorEdge >/dev/null || rc=$?
+[ "$rc" -ne 0 ] || fail "the app is already running"
+[ "$rc" -eq 1 ] || fail "cannot check whether the app is running"
 team='certificate leaf[subject.OU] = "P3ABP9SXH7"'
 
 tmp="${TMPDIR:-/tmp}"
@@ -190,9 +219,14 @@ open -b com.manor.edge.menubar --args --show-window
 ```
 
 An unpaired Mac also opens the setup window on its own at first launch. If the
-app is already running, the arguments are ignored; ask the owner to choose
-**Pair This Mac…** (or **Open MANOR Edge**) from the house icon in the menu
-bar. Do not quit and relaunch it yourself.
+app is already running, the same command brings its window forward; only the
+arguments are ignored. If no window appears, ask the owner to choose **Pair
+This Mac…** (or **Open MANOR Edge**) from the house icon in the menu bar. Do
+not quit and relaunch it yourself.
+
+If `open` fails with `LSCopyApplicationURLsForBundleIdentifier` while
+/Applications/ManorEdge.app exists, your sandbox is blocking it, not the app.
+Ask the owner to open MANOR Edge from Applications or the menu bar.
 
 ## Hand pairing to the owner
 
@@ -204,7 +238,8 @@ Tell the owner, in your own words:
    platform**, choose **Mac**. A Dedicated home also needs the property's
    address and is a setup request: it is reviewed, and the owner gets an email
    when the home is ready for a key.
-3. Create a pairing key for that home on this Mac's home card.
+3. In that home's entry, choose **Mac** as the edge platform if asked, then
+   choose **Create pairing key**.
 4. Paste the key into the window that is open on this Mac, then confirm.
 
 What happens next depends on the key, and the app picks the path by itself:
@@ -213,7 +248,8 @@ What happens next depends on the key, and the app picks the path by itself:
   directly. There is no administrator password and nothing else is installed.
   The key works once and expires ten minutes after it is created, so the owner
   should create it right before pasting it.
-- **A 32-character key of letters and digits pairs a Premium home.** The app
+- **A 32-character key of digits and the letters a to f pairs a Premium
+  home.** The app
   runs the Premium installer, and macOS shows its standard administrator
   dialog. The owner approves it with their own Mac password. The key works
   once and expires 15 minutes after it is created.
@@ -224,8 +260,9 @@ connected when it is done. You can confirm the app is still running with
 
 ## Free and Premium
 
-- **Free:** live view of two cameras. No recording, no detection and no
-  integrations. No charge.
+- **Free:** up to two cameras, both live on the owner's phone and in their
+  account. One Free home and one edge per account. No recording, no detection
+  and no integrations. No charge.
 - **Premium:** recording, object detection, every camera the home can run and
   integrations such as locks, alarm, climate and lighting, with a cloud kept
   just for that home. CA$25 a month or CA$250 a year for the first home. Each
@@ -237,8 +274,7 @@ Camera compatibility:
 
 - On both tiers, the camera must offer an RTSP stream on the home network.
   Cameras without one, such as Ring and Arlo, cannot be added.
-- Nest cameras connect through the Premium Google Nest integration and are
-  live view only.
+- Nest cameras connect only through the Premium Google Nest integration.
 
 ## After pairing: adding cameras
 
@@ -267,8 +303,9 @@ camera details yourself.
 - **"This Mac has two MANOR pairings":** the Mac has both a Free and a
   Premium pairing, and the app runs only one. The owner decides what to keep.
   To keep Premium, they remove the edge from the Free home in their account,
-  then choose **Forget Free Pairing on This Mac…** in the notice. Do not
-  delete either pairing yourself.
+  then choose **Forget Free Pairing on This Mac…** in the alert and confirm
+  with **Forget Free Pairing**. Mention this only when the app itself shows
+  the alert. Do not delete either pairing yourself.
 - **The key was rejected or has expired:** the owner creates a new key in
   their account and pastes it. Free keys expire after ten minutes and Premium
   keys after 15 minutes; each works once, and a new key replaces the previous
