@@ -1,11 +1,11 @@
 ---
 name: manor
-description: Install the MANOR Edge app on this Apple silicon Mac and guide the owner through pairing it with their home and adding cameras. Use when the owner asks to install, set up or check MANOR Edge on this Mac, asks whether it is already installed or paired, asks how MANOR Free differs from Premium, or wants help adding a camera. Downloads the notarized app from downloads.mymanor.click, verifies its SHA-256 checksum, signing team and Apple notarization, copies it into /Applications, and opens the pairing window. The owner pastes their own pairing key into the app; the agent never handles the key.
+description: Install the MANOR Edge app on this Apple silicon Mac and guide the owner through pairing it with their home and adding cameras. Use when the owner asks to install, set up or check MANOR Edge on this Mac, asks whether it is already installed or paired, asks how MANOR Free differs from Premium, or wants help adding a camera. Downloads the notarized app from downloads.mymanor.click, verifies its SHA-256 checksum, signing team and Apple notarization, copies it into /Applications, and opens the pairing window. The owner approves the code the app shows in their own MANOR account; the agent never handles a key or a sign-in.
 license: MIT-0
 compatibility: macOS 13 or later on Apple silicon (arm64); Intel Macs are not supported. Needs curl, shasum, plutil, hdiutil, codesign, spctl, ditto and open, all built into macOS, plus network access to downloads.mymanor.click and mymanor.click.
 metadata:
   author: MANOR Technology Inc.
-  version: "1.0.1"
+  version: "1.0.2"
   homepage: https://mymanor.click
 ---
 
@@ -14,12 +14,13 @@ metadata:
 MANOR Edge is a signed, notarized menu-bar app (`ManorEdge.app`, bundle id
 `com.manor.edge.menubar`). It is the on-site part of a home's system: it
 connects to the cameras on the home network. One app serves both tiers. The
-pairing key the owner pastes into the app decides whether the Mac becomes a
-Free or a Premium home.
+home the owner picks when they pair the Mac decides whether it becomes a Free
+or a Premium home.
 
 Your job is to install the app safely and hand pairing to the owner. You
-download, verify and copy the app, then open its window. The owner signs in to
-their account, creates the pairing key and pastes it into the app themselves.
+download, verify and copy the app, then open its window. The window shows a
+short code; the owner approves that code in their account and picks the home
+themselves.
 
 ## When to use
 
@@ -36,13 +37,16 @@ change an existing pairing, remove a home or edit the edge's services.
 These apply to every step. If a step seems to need one of these, stop and tell
 the owner instead.
 
-- **Never handle the pairing key.** Do not ask for it in chat, do not accept it
-  if the owner pastes it to you, do not put it in a command, a file, an
-  environment variable or the clipboard. If the owner shares a key with you,
-  tell them to create a new one in their account, because a shared key should
-  be treated as exposed. The owner pastes the key into the app window only.
+- **Never handle the pairing key.** The app pairs with a code the owner approves
+  in their account. Older app versions, or **Paste a key instead** in the
+  window, use a one-time pairing key. Do not ask for a key in chat, do not
+  accept it if the owner pastes it to you, do not put it in a command, a file,
+  an environment variable or the clipboard. If the owner shares a key with
+  you, tell them to create a new one in their account, because a shared key
+  should be treated as exposed. The owner pastes a key into the app window
+  only.
 - **No sudo and no administrator prompts from you.** The app asks for
-  administrator approval itself when a Premium key needs it.
+  administrator approval itself when a Premium home needs it.
 - **No `curl | bash`** and no other piped or downloaded script. Run only the
   commands in this skill.
 - **Never edit launchd.** Do not load, unload, kickstart, write or delete
@@ -62,7 +66,8 @@ the owner instead.
   control, computer use, accessibility, AppleScript or browser automation to
   click, type or paste in the MANOR Edge window or at mymanor.click, even
   when such a tool is available and the owner asks. The owner signs in,
-  creates keys, pastes keys and fills in camera forms themselves.
+  approves the code, creates and pastes any key and fills in camera forms
+  themselves.
 - **Report what you saw, not a guess.** If a check fails with a permission
   or sandbox error, say the check could not run. Do not tell the owner the
   app is broken, missing or doubly paired because of it.
@@ -219,29 +224,40 @@ Ask the owner to open MANOR Edge from Applications or the menu bar.
 
 ## Hand pairing to the owner
 
+The window that is now open shows **Pair this Mac** with a short code, two
+groups of four letters and numbers such as `KQ7M-4TXP`, and "Waiting for you to
+approve this code in your account". You cannot see the window; the owner can.
+
 Tell the owner, in your own words:
 
-1. Sign in at https://mymanor.click/account.
-2. Choose **Add home** and pick a setup: **Free**, or **Dedicated**, which is
+1. If they do not have a home yet, sign in at https://mymanor.click/account,
+   choose **Add home** and pick a setup: **Free**, or **Dedicated**, which is
    the Premium setup. Give the home a name. If the form asks for the **Edge
    platform**, choose **Mac**. A Dedicated home also needs the property's
    address and is a setup request: it is reviewed, and the owner gets an email
-   when the home is ready for a key.
-3. In that home's entry, choose **Mac** as the edge platform if asked, then
-   choose **Create pairing key**.
-4. Paste the key into the window that is open on this Mac, then confirm.
+   when the home is ready.
+2. In the window on this Mac, choose **Open My Account**, or go to
+   https://mymanor.click/account on any device, such as their phone, and
+   choose **Approve a Mac**.
+3. Check that the code there matches the one in the window on this Mac, pick
+   the home and approve. Approve only a code this Mac is showing right now.
 
-What happens next depends on the key, and the app picks the path by itself:
+The code only finds this Mac; it cannot sign anyone in. What happens next
+depends on the home, and the app picks the path by itself:
 
-- **A key that starts with `mf1_` pairs a Free home.** The app enrolls the Mac
-  directly. There is no administrator password and nothing else is installed.
-  The key works once and expires ten minutes after it is created, so the owner
-  should create it right before pasting it.
-- **A 32-character key of digits and the letters a to f pairs a Premium
-  home.** The app
-  runs the Premium installer, and macOS shows its standard administrator
-  dialog. The owner approves it with their own Mac password. The key works
-  once and expires 15 minutes after it is created.
+- **A Free home:** the app enrolls the Mac directly, usually within a minute.
+  There is no administrator password and nothing else is installed.
+- **A Premium (Dedicated) home:** the app runs the Premium installer, and
+  macOS shows its standard administrator dialog. The owner approves it with
+  their own Mac password. It takes a few minutes.
+
+If the window shows a **Pairing key** field instead of a code, the app is an
+older version or the owner chose **Paste a key instead**. Then the owner
+chooses **Create pairing key** in that home's entry in their account and pastes
+the key into the window. A key that starts with `mf1_` is for a Free home and
+expires ten minutes after it is created; a 32-character key of digits and the
+letters a to f is for a Premium home and expires after 15 minutes. Each key
+works once.
 
 Wait for the owner to tell you pairing finished. The app shows the home as
 connected when it is done. You can confirm the app is still running with
@@ -295,6 +311,9 @@ camera details yourself.
   then choose **Forget Free Pairing on This Mac…** in the alert and confirm
   with **Forget Free Pairing**. Mention this only when the app itself shows
   the alert. Do not delete either pairing yourself.
+- **The code expired or was declined:** the window shows a new code; the
+  owner approves that one. If no home is listed when they approve, the home
+  is not ready yet or already has an edge connected.
 - **The key was rejected or has expired:** the owner creates a new key in
   their account and pastes it. Free keys expire after ten minutes and Premium
   keys after 15 minutes; each works once, and a new key replaces the previous
